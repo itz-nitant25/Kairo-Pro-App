@@ -1,91 +1,74 @@
 import streamlit as st
 from openai import OpenAI
+from supabase import create_client
 
-# --- 1. SETTINGS & CLOAKING ---
+# --- 1. CLOAKING (Hides Streamlit UI) ---
 st.set_page_config(page_title="Kairo Pro", page_icon="⚡", layout="wide")
+st.markdown("<style>#MainMenu, footer, header {visibility: hidden;}</style>", unsafe_allow_html=True)
 
-# Custom CSS to make it look like a real SaaS website
-st.markdown("""
-    <style>
-    /* Hide Streamlit elements */
-    #MainMenu, footer, header {visibility: hidden;}
+# --- 2. CONNECTIONS ---
+try:
+    client = OpenAI(api_key=st.secrets["XAI_API_KEY"], base_url="https://api.x.ai/v1")
+    supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
+except:
+    st.error("Setup Secrets in Streamlit Settings.")
+    st.stop()
+
+# --- 3. PASSWORDLESS LOGIN LOGIC ---
+# Using Streamlit's native user tracking instead of custom tables
+if not st.experimental_user.is_logged_in:
+    st.title("🤖 Welcome to Kairo")
+    st.write("Click below to enter your private AI terminal.")
+    if st.button("Log in with Google"):
+        st.login("google")
+    st.stop()
+
+# --- 4. KAIRO INTERFACE (Only visible if logged in) ---
+user_email = st.experimental_user.email
+
+with st.sidebar:
+    st.write(f"Logged in: **{user_email}**")
+    model_choice = st.selectbox("Grok Engine", ["grok-2", "grok-beta"])
+    uploaded_file = st.file_uploader("📎 Analyze File", type=['txt', 'pdf', 'png', 'jpg'])
     
-    /* Hero Section Styling */
-    .hero-container {
-        padding: 100px 0px;
-        text-align: center;
-        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-        color: white;
-        border-radius: 20px;
-        margin-bottom: 50px;
-    }
-    .hero-title {
-        font-size: 4rem;
-        font-weight: 800;
-        margin-bottom: 20px;
-        background: -webkit-linear-gradient(#fff, #94a3b8);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-    }
-    .feature-card {
-        padding: 30px;
-        background: #1e293b;
-        border: 1px solid #334155;
-        border-radius: 15px;
-        text-align: center;
-        transition: 0.3s;
-    }
-    .feature-card:hover {
-        border-color: #38bdf8;
-        transform: translateY(-5px);
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-# --- 2. PAGE NAVIGATION ---
-if "page" not in st.session_state:
-    st.session_state.page = "home"
-
-# --- 3. HOMEPAGE LAYOUT ---
-if st.session_state.page == "home":
-    # HERO SECTION
-    st.markdown("""
-        <div class="hero-container">
-            <h1 class="hero-title">KAIRO PRO</h1>
-            <p style="font-size: 1.5rem; color: #94a3b8;">The ultra-fast AI terminal powered by Grok 4.1</p>
-        </div>
-    """, unsafe_allow_html=True)
-
-    # BUTTONS IN THE CENTER
-    col1, col2, col3 = st.columns([2, 1, 2])
-    with col2:
-        if st.button("🚀 ENTER TERMINAL", use_container_width=True):
-            st.session_state.page = "chat"
-            st.rerun()
-
+    # Load Past Chats from Supabase
     st.divider()
+    st.subheader("📜 Past Chats")
+    past_chats = supabase.table("chats").select("*").eq("email", user_email).order("created_at", desc=True).limit(5).execute()
+    for chat in past_chats.data:
+        if st.button(f"Chat {chat['created_at'][:10]}", key=chat['id']):
+            st.session_state.messages = chat['messages']
 
-    # FEATURES GRID
-    st.subheader("Why choose Kairo?")
-    f1, f2, f3 = st.columns(3)
-    with f1:
-        st.markdown('<div class="feature-card"><h3>🧠 Grok Engine</h3><p>Using xAI\'s latest models for unfiltered intelligence.</p></div>', unsafe_allow_html=True)
-    with f2:
-        st.markdown('<div class="feature-card"><h3>📁 File Insight</h3><p>Upload PDFs or Images and chat with your data instantly.</p></div>', unsafe_allow_html=True)
-    with f3:
-        st.markdown('<div class="feature-card"><h3>🔒 Zero Trace</h3><p>Private sessions that leave no footprint on your device.</p></div>', unsafe_allow_html=True)
+    if st.button("Log Out"):
+        st.logout()
 
-# --- 4. CHAT TERMINAL (The actual app) ---
-elif st.session_state.page == "chat":
-    # Back button in sidebar
-    if st.sidebar.button("⬅ Back to Home"):
-        st.session_state.page = "home"
-        st.rerun()
+# --- 5. CHAT SYSTEM ---
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+for m in st.session_state.messages:
+    with st.chat_message(m["role"]):
+        st.markdown(m["content"])
+
+if prompt := st.chat_input("Message Kairo..."):
+    if uploaded_file:
+        prompt = f"[File Attached: {uploaded_file.name}]\n\n" + prompt
     
-    st.title("🤖 Kairo Terminal")
-    st.info("Currently using Grok-2 engine.")
-    
-    # [Insert your existing chat and file upload logic here]
-    if prompt := st.chat_input("Message Kairo..."):
-        with st.chat_message("user"):
-            st.write(prompt)
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    with st.chat_message("assistant"):
+        resp = client.chat.completions.create(
+            model=model_choice,
+            messages=[{"role": m["role"], "content": m["content"]} for m in st.session_state.messages]
+        )
+        answer = resp.choices[0].message.content
+        st.markdown(answer)
+        st.session_state.messages.append({"role": "assistant", "content": answer})
+        
+        # Auto-save to Supabase using email as the ID
+        supabase.table("chats").insert({
+            "email": user_email,
+            "messages": st.session_state.messages
+        }).execute()
