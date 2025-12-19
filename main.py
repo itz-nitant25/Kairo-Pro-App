@@ -1,115 +1,91 @@
 import streamlit as st
 from openai import OpenAI
-from supabase import create_client
-import base64
 
-# --- 1. PROFESSIONAL BRANDING (Hides Streamlit UI) ---
+# --- 1. SETTINGS & CLOAKING ---
 st.set_page_config(page_title="Kairo Pro", page_icon="⚡", layout="wide")
 
-hide_st_style = """
-            <style>
-            #MainMenu {visibility: hidden;}
-            footer {visibility: hidden;}
-            header {visibility: hidden;}
-            #stDecoration {display:none;}
-            </style>
-            """
-st.markdown(hide_st_style, unsafe_allow_html=True)
+# Custom CSS to make it look like a real SaaS website
+st.markdown("""
+    <style>
+    /* Hide Streamlit elements */
+    #MainMenu, footer, header {visibility: hidden;}
+    
+    /* Hero Section Styling */
+    .hero-container {
+        padding: 100px 0px;
+        text-align: center;
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+        color: white;
+        border-radius: 20px;
+        margin-bottom: 50px;
+    }
+    .hero-title {
+        font-size: 4rem;
+        font-weight: 800;
+        margin-bottom: 20px;
+        background: -webkit-linear-gradient(#fff, #94a3b8);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+    .feature-card {
+        padding: 30px;
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 15px;
+        text-align: center;
+        transition: 0.3s;
+    }
+    .feature-card:hover {
+        border-color: #38bdf8;
+        transform: translateY(-5px);
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
-# --- 2. INITIALIZATION ---
-try:
-    # xAI Grok Setup
-    client = OpenAI(api_key=st.secrets["XAI_API_KEY"], base_url="https://api.x.ai/v1")
-    # Supabase Setup
-    supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
-except Exception as e:
-    st.error("⚠️ Setup incomplete. Check your Streamlit Secrets.")
-    st.stop()
+# --- 2. PAGE NAVIGATION ---
+if "page" not in st.session_state:
+    st.session_state.page = "home"
 
-# --- 3. SESSION & LOGIN LOGIC ---
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
+# --- 3. HOMEPAGE LAYOUT ---
+if st.session_state.page == "home":
+    # HERO SECTION
+    st.markdown("""
+        <div class="hero-container">
+            <h1 class="hero-title">KAIRO PRO</h1>
+            <p style="font-size: 1.5rem; color: #94a3b8;">The ultra-fast AI terminal powered by Grok 4.1</p>
+        </div>
+    """, unsafe_allow_html=True)
 
-def login():
-    with st.sidebar:
-        st.title("👤 Kairo Account")
-        user_in = st.text_input("Username")
-        pass_in = st.text_input("Password", type="password")
-        if st.button("Log In"):
-            res = supabase.table("profiles").select("*").eq("username", user_in).eq("password", pass_in).execute()
-            if res.data:
-                st.session_state.logged_in = True
-                st.session_state.user_id = res.data[0]["id"]
-                st.session_state.username = res.data[0]["username"]
-                st.rerun()
-            else:
-                st.error("Access Denied.")
-
-# --- 4. MAIN INTERFACE ---
-if not st.session_state.logged_in:
-    st.header("Welcome to Kairo")
-    st.info("Please sign in to access the private Grok terminal.")
-    login()
-else:
-    # Sidebar: Model Selection & History
-    with st.sidebar:
-        st.write(f"Logged in as: **{st.session_state.username}**")
-        
-        # Grok Options
-        st.session_state.model = st.selectbox(
-            "AI Engine", 
-            ["grok-4.1-thinking", "grok-4.1", "grok-4-fast"],
-            help="Thinking mode is best for complex logic."
-        )
-        
-        # File Upload Option
-        uploaded_file = st.file_uploader("📎 Upload a file to analyze", type=['txt', 'pdf', 'csv', 'png', 'jpg'])
-        if uploaded_file:
-            st.success(f"Loaded: {uploaded_file.name}")
-
-        st.divider()
-        if st.button("New Chat"):
-            st.session_state.messages = []
-            st.rerun()
-        
-        if st.button("Sign Out"):
-            st.session_state.logged_in = False
+    # BUTTONS IN THE CENTER
+    col1, col2, col3 = st.columns([2, 1, 2])
+    with col2:
+        if st.button("🚀 ENTER TERMINAL", use_container_width=True):
+            st.session_state.page = "chat"
             st.rerun()
 
-    # Chat History Container
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
+    st.divider()
 
-    # Display History
-    for m in st.session_state.messages:
-        with st.chat_message(m["role"]):
-            st.markdown(m["content"])
+    # FEATURES GRID
+    st.subheader("Why choose Kairo?")
+    f1, f2, f3 = st.columns(3)
+    with f1:
+        st.markdown('<div class="feature-card"><h3>🧠 Grok Engine</h3><p>Using xAI\'s latest models for unfiltered intelligence.</p></div>', unsafe_allow_html=True)
+    with f2:
+        st.markdown('<div class="feature-card"><h3>📁 File Insight</h3><p>Upload PDFs or Images and chat with your data instantly.</p></div>', unsafe_allow_html=True)
+    with f3:
+        st.markdown('<div class="feature-card"><h3>🔒 Zero Trace</h3><p>Private sessions that leave no footprint on your device.</p></div>', unsafe_allow_html=True)
 
-    # Chat Input
+# --- 4. CHAT TERMINAL (The actual app) ---
+elif st.session_state.page == "chat":
+    # Back button in sidebar
+    if st.sidebar.button("⬅ Back to Home"):
+        st.session_state.page = "home"
+        st.rerun()
+    
+    st.title("🤖 Kairo Terminal")
+    st.info("Currently using Grok-2 engine.")
+    
+    # [Insert your existing chat and file upload logic here]
     if prompt := st.chat_input("Message Kairo..."):
-        # If a file was uploaded, we can append its info to the prompt
-        if uploaded_file:
-            prompt = f"[User uploaded {uploaded_file.name}]\n\n" + prompt
-
-        st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
-            st.markdown(prompt)
-
-        # Grok AI Response
-        with st.chat_message("assistant"):
-            try:
-                response = client.chat.completions.create(
-                    model=st.session_state.model,
-                    messages=[{"role": m["role"], "content": m["content"]} for m in st.session_state.messages]
-                )
-                answer = response.choices[0].message.content
-                st.markdown(answer)
-                st.session_state.messages.append({"role": "assistant", "content": answer})
-                
-                # Save to Supabase Memory
-                supabase.table("chats").insert({
-                    "user_id": st.session_state.user_id,
-                    "messages": st.session_state.messages
-                }).execute()
-            except Exception as e:
-                st.error(f"Engine Error: {e}")
+            st.write(prompt)
