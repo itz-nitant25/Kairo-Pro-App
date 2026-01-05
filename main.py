@@ -15,25 +15,33 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 if "trial_count" not in st.session_state:
     st.session_state.trial_count = 0
+if "user_email" not in st.session_state:
+    st.session_state.user_email = None
 
 # --- 4. SIDEBAR ---
 with st.sidebar:
     st.title("⚡ Kairo Pro")
     
-    if not st.user.is_logged_in:
+    if not st.session_state.user_email:
         remaining = 50 - st.session_state.trial_count
         st.info(f"🎁 Guest Trial: {remaining} messages left")
-        if st.button("Log in with Google"):
-            st.login("google")
+        
+        st.subheader("Login / Sign Up")
+        email_input = st.text_input("Enter your Email")
+        if st.button("Send Magic Link"):
+            # This sends a login link to their inbox via Supabase
+            res = supabase.auth.sign_in_with_otp({"email": email_input})
+            st.success("Check your email for the login link!")
     else:
-        st.success(f"Logged in: {st.user.email}")
+        st.success(f"Logged in: {st.session_state.user_email}")
         if st.button("Log Out"):
-            st.logout()
+            st.session_state.user_email = None
+            st.rerun()
         
         st.divider()
         st.subheader("📜 Chat History")
-        # Fetch chats from Supabase for this user
-        history = supabase.table("chats").select("*").eq("email", st.user.email).order("created_at", desc=True).limit(10).execute()
+        # Fetch chats for this email
+        history = supabase.table("chats").select("*").eq("email", st.session_state.user_email).order("created_at", desc=True).limit(10).execute()
         for chat in history.data:
             label = chat['messages'][0]['content'][:25] + "..."
             if st.button(label, key=chat['id']):
@@ -46,28 +54,24 @@ for m in st.session_state.messages:
         st.markdown(m["content"])
 
 if prompt := st.chat_input("Ask Kairo anything..."):
-    # Trial Limit Logic
-    if not st.user.is_logged_in and st.session_state.trial_count >= 50:
-        st.error("Trial limit (50 messages) reached! Please log in with Google to continue.")
+    if not st.session_state.user_email and st.session_state.trial_count >= 50:
+        st.error("Trial limit reached! Please log in via email to continue.")
         st.stop()
     
-    # Display User Input
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Assistant Response
     with st.chat_message("assistant"):
         response = client.chat.completions.create(model="grok-2-1212", messages=st.session_state.messages)
         ans = response.choices[0].message.content
         st.markdown(ans)
         st.session_state.messages.append({"role": "assistant", "content": ans})
 
-    # Saving Logic
-    if not st.user.is_logged_in:
+    if not st.session_state.user_email:
         st.session_state.trial_count += 1
     else:
         supabase.table("chats").insert({
-            "email": st.user.email,
+            "email": st.session_state.user_email,
             "messages": st.session_state.messages
         }).execute()
